@@ -2,6 +2,15 @@ name: Deploy Infrastructure with Terraform
 
 on:
   workflow_dispatch:
+    inputs:
+      action:
+        description: 'Select Terraform action'
+        required: true
+        default: 'apply'
+        type: choice
+        options:
+          - apply
+          - destroy
 
 jobs:
   terraform:
@@ -27,17 +36,19 @@ jobs:
         terraform init
 
     - name: Terraform Plan
+      if: ${{ github.event.inputs.action == 'apply' }}
       run: |
         cd terraform
         terraform plan
 
     - name: Terraform Apply
+      if: ${{ github.event.inputs.action == 'apply' }}
       run: |
         cd terraform
         terraform apply -auto-approve
 
     - name: Terraform Destroy
-      if: ${{ github.event_name == 'workflow_dispatch' }}
+      if: ${{ github.event.inputs.action == 'destroy' }}
       run: |
         cd terraform
         terraform destroy -auto-approve
