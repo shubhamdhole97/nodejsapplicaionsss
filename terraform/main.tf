@@ -1,18 +1,23 @@
-# Use default VPC (ap-south-1 default VPC) and default subnet
+# Default VPC
 data "aws_vpc" "default" {
   default = true
 }
 
-data "aws_subnet_ids" "default_vpc" {
-  vpc_id = data.aws_vpc.default.id
+# Default subnets in that VPC
+data "aws_subnets" "default_vpc" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
 }
 
+# Latest Ubuntu 24.04 LTS AMI from Canonical
 data "aws_ami" "ubuntu" {
   most_recent = true
 
   filter {
     name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-24.04-amd64-server-*"]
+    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
   }
 
   filter {
@@ -25,7 +30,7 @@ data "aws_ami" "ubuntu" {
 
 resource "aws_security_group" "instance" {
   name        = "allow_ssh_http"
-  description = "Allow SSH and HTTP"
+  description = "Allow SSH, HTTP, HTTPS"
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
@@ -65,13 +70,12 @@ resource "aws_security_group" "instance" {
 }
 
 resource "aws_instance" "example" {
-  ami                    = data.aws_ami.ubuntu.id
-  instance_type          = "t3.medium"
-  key_name               = "pem.pem"
-  subnet_id              = data.aws_subnet_ids.default_vpc.ids[0]
-  vpc_security_group_ids = [aws_security_group.instance.id]
+  ami                         = data.aws_ami.ubuntu.id
+  instance_type               = "t3.medium"
+  key_name                    = "pem"   # use Key Pair NAME, not pem.pem file name
+  subnet_id                   = data.aws_subnets.default_vpc.ids[0]
+  vpc_security_group_ids      = [aws_security_group.instance.id]
   associate_public_ip_address = true
-  count                  = 1
 
   tags = {
     Name = "Ubuntu-24-LTS"
@@ -79,16 +83,13 @@ resource "aws_instance" "example" {
 }
 
 output "instance_id" {
-  description = "Created EC2 instance ID"
-  value       = aws_instance.example[0].id
+  value = aws_instance.example.id
 }
 
 output "instance_public_ip" {
-  description = "Public IP of the EC2 instance"
-  value       = aws_instance.example[0].public_ip
+  value = aws_instance.example.public_ip
 }
 
 output "instance_public_dns" {
-  description = "Public DNS name of the EC2 instance"
-  value       = aws_instance.example[0].public_dns
+  value = aws_instance.example.public_dns
 }
