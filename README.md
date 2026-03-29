@@ -35,17 +35,23 @@ The server will run on `http://0.0.0.0:5000` inside the container.
 
 ## GitHub Actions
 
-This repository includes a GitHub Actions workflow that automatically builds and pushes the Docker image to Docker Hub on every push to the `main` branch.
+This repository includes GitHub Actions workflows for CI/CD.
 
-### Setup
+### Docker Image Publishing
 
-1. Go to your Docker Hub account and create an access token (if you don't have one).
-2. In your GitHub repository, go to Settings > Secrets and variables > Actions.
-3. Add the following secrets:
-   - `DOCKERHUB_USERNAME`: Your Docker Hub username.
-   - `DOCKERHUB_TOKEN`: Your Docker Hub access token.
-4. The workflow will automatically tag and push the image as `{DOCKERHUB_USERNAME}/nodejsapp:latest`.
+Automatically builds and pushes the Docker image to Docker Hub on every push to the `main` branch.
 
-### Manual Trigger
+**Setup**:
+1. Add `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets in GitHub repository settings.
 
-You can also trigger the workflow manually from the Actions tab in GitHub.
+### Infrastructure Deployment
+
+Manually deploys the EC2 instance using Terraform.
+
+**Setup**:
+1. Add `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` secrets in GitHub repository settings.
+2. Go to the Actions tab in GitHub.
+3. Select "Deploy Infrastructure with Terraform" workflow.
+4. Click "Run workflow" to deploy the EC2 instance.
+
+**Note**: This workflow uses `workflow_dispatch` for manual triggering to avoid accidental deployments on every push.
