@@ -75,6 +75,30 @@ resource "aws_iam_instance_profile" "eks_node_group_profile" {
   role = aws_iam_role.eks_node_group_role.name
 }
 
+resource "aws_security_group" "eks_nodes" {
+  name        = "eks-node-sg"
+  description = "Security group for EKS worker nodes"
+  vpc_id      = data.aws_vpc.default.id
+
+  ingress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "eks-node-sg"
+  }
+}
+
 resource "aws_launch_template" "eks_ubuntu_nodes" {
   name_prefix   = "eks-ubuntu-node-"
   image_id      = "ami-05d2d839d4f73aafb"
@@ -86,7 +110,7 @@ resource "aws_launch_template" "eks_ubuntu_nodes" {
 
   network_interfaces {
     associate_public_ip_address = true
-    security_groups             = [aws_security_group.instance.id]
+    security_groups             = [aws_security_group.eks_nodes.id]
   }
 
   user_data = base64encode(<<EOF
