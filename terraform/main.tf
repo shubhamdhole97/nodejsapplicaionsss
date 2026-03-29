@@ -11,85 +11,153 @@ data "aws_subnets" "default_vpc" {
   }
 }
 
-# Latest Ubuntu 24.04 LTS AMI from Canonical
-data "aws_ami" "ubuntu" {
-  most_recent = true
+resource "aws_iam_role" "eks_cluster_role" {
+  name = "example-eks-cluster-role"
 
-  filter {
-    name   = "name"
-    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
-  }
-
-  filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
-  }
-
-  owners = ["099720109477"]
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "eks.amazonaws.com"
+        }
+      }
+    ]
+  })
 }
 
-resource "aws_security_group" "instance" {
-  name        = "allow_ssh_http"
-  description = "Allow SSH, HTTP, HTTPS"
-  vpc_id      = data.aws_vpc.default.id
+resource "aws_iam_role_policy_attachment" "eks_cluster_role_AmazonEKSClusterPolicy" {
+  role       = aws_iam_role.eks_cluster_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+}
 
-  ingress {
-    description = "SSH"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+resource "aws_iam_role_policy_attachment" "eks_cluster_role_AmazonEKSServicePolicy" {
+  role       = aws_iam_role.eks_cluster_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSServicePolicy"
+}
+
+resource "aws_iam_role" "eks_node_group_role" {
+  name = "example-eks-node-group-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ec2.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "eks_node_group_role_AmazonEKSWorkerNodePolicy" {
+  role       = aws_iam_role.eks_node_group_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+}
+
+resource "aws_iam_role_policy_attachment" "eks_node_group_role_AmazonEKS_CNI_Policy" {
+  role       = aws_iam_role.eks_node_group_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+}
+
+resource "aws_iam_role_policy_attachment" "eks_node_group_role_AmazonEC2ContainerRegistryReadOnly" {
+  role       = aws_iam_role.eks_node_group_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+}
+
+resource "aws_iam_instance_profile" "eks_node_group_profile" {
+  name = "example-eks-node-group-profile"
+  role = aws_iam_role.eks_node_group_role.name
+}
+
+resource "aws_launch_template" "eks_ubuntu_nodes" {
+  name_prefix   = "eks-ubuntu-node-"
+  image_id      = "ami-05d2d839d4f73aafb"
+  instance_type = "t3.medium"
+
+  iam_instance_profile {
+    name = aws_iam_instance_profile.eks_node_group_profile.name
   }
 
-  ingress {
-    description = "HTTP"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+  network_interfaces {
+    associate_public_ip_address = true
+    security_groups             = [aws_security_group.instance.id]
   }
 
-  ingress {
-    description = "HTTPS"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+  user_data = base64encode(<<EOF
+#!/bin/bash
+set -o xtrace
+/etc/eks/bootstrap.sh ${aws_eks_cluster.example.name}
+EOF
+  )
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "ec2-default-sg"
+  tag_specifications {
+    resource_type = "instance"
+    tags = {
+      Name = "eks-ubuntu-node"
+    }
   }
 }
 
-resource "aws_instance" "example" {
-  ami                         = data.aws_ami.ubuntu.id
-  instance_type               = "t3.medium"
-  key_name                    = "pem"   # use Key Pair NAME, not pem.pem file name
-  subnet_id                   = data.aws_subnets.default_vpc.ids[0]
-  vpc_security_group_ids      = [aws_security_group.instance.id]
-  associate_public_ip_address = true
+resource "aws_eks_cluster" "example" {
+  name     = "example-eks-cluster"
+  role_arn = aws_iam_role.eks_cluster_role.arn
 
-  tags = {
-    Name = "Ubuntu-24-LTS"
+  vpc_config {
+    subnet_ids = data.aws_subnets.default_vpc.ids
+    endpoint_public_access = true
+    endpoint_private_access = false
   }
+
+  depends_on = [
+    aws_iam_role_policy_attachment.eks_cluster_role_AmazonEKSClusterPolicy,
+    aws_iam_role_policy_attachment.eks_cluster_role_AmazonEKSServicePolicy,
+  ]
 }
 
-output "instance_id" {
-  value = aws_instance.example.id
+resource "aws_eks_node_group" "example" {
+  cluster_name    = aws_eks_cluster.example.name
+  node_group_name = "example-eks-node-group"
+  node_role_arn   = aws_iam_role.eks_node_group_role.arn
+  subnet_ids      = data.aws_subnets.default_vpc.ids
+
+  scaling_config {
+    desired_size = 2
+    min_size     = 2
+    max_size     = 2
+  }
+
+  launch_template {
+    id      = aws_launch_template.eks_ubuntu_nodes.id
+    version = "$Latest"
+  }
+
+  ami_type = "CUSTOM"
+
+  depends_on = [
+    aws_iam_role_policy_attachment.eks_node_group_role_AmazonEKSWorkerNodePolicy,
+    aws_iam_role_policy_attachment.eks_node_group_role_AmazonEKS_CNI_Policy,
+    aws_iam_role_policy_attachment.eks_node_group_role_AmazonEC2ContainerRegistryReadOnly,
+  ]
 }
 
-output "instance_public_ip" {
-  value = aws_instance.example.public_ip
+output "eks_cluster_name" {
+  value = aws_eks_cluster.example.name
 }
 
-output "instance_public_dns" {
-  value = aws_instance.example.public_dns
+output "eks_cluster_endpoint" {
+  value = aws_eks_cluster.example.endpoint
+}
+
+output "eks_cluster_certificate_authority_data" {
+  value = aws_eks_cluster.example.certificate_authority[0].data
+}
+
+output "eks_node_group_name" {
+  value = aws_eks_node_group.example.node_group_name
 }
